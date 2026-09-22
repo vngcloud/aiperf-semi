@@ -332,3 +332,73 @@ async def test_warmup_signals_complete_when_no_request_precedes_t_star() -> None
 
     issuer.signal_sending_complete.assert_called_once()
     issuer.issue_credit.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# G18: context-overflow drops the trace instead of accumulating a failure
+# ---------------------------------------------------------------------------
+
+
+def test_warmup_context_overflow_drops_trace_and_returns_false() -> None:
+    """A context-overflow WARMUP error drops the trace, not the run.
+
+    The server would reject this trace's prompt on every future turn too,
+    so it's excluded from the trajectory pool PROFILING draws from -
+    mirroring the PROFILING-phase context-overflow short-circuit - instead
+    of accumulating toward ``report_warmup_failures`` aborting the whole
+    run. The False return tells the live-abort caller not to fire either.
+    """
+    trajectories = [
+        Trajectory(conversation_id="trace_0", start_turn_index=0),
+        Trajectory(conversation_id="trace_1", start_turn_index=0),
+    ]
+    ds = _make_dataset(num_traces=2, turns_per_trace=2)
+    strategy, _, _, _ = _make_strategy(
+        phase=CreditPhase.WARMUP, trajectories=trajectories, dataset=ds
+    )
+
+    result = strategy.record_warmup_failure(
+        "trace_0", "This model's maximum context length is 131072 tokens"
+    )
+
+    assert result is False
+    remaining = [t.conversation_id for t in strategy.conversation_source.trajectories]
+    assert remaining == ["trace_1"], (
+        f"overflowing trace should be dropped from the pool; got {remaining}"
+    )
+    assert strategy._failed_warmup_traces == []
+    strategy.report_warmup_failures()  # must not raise
+
+
+def test_warmup_non_overflow_error_still_returns_true() -> None:
+    """A non-overflow WARMUP failure still accumulates and returns True."""
+    trajectory = [Trajectory(conversation_id="trace_0", start_turn_index=0)]
+    ds = _make_dataset(num_traces=1, turns_per_trace=2)
+    strategy, _, _, _ = _make_strategy(
+        phase=CreditPhase.WARMUP, trajectories=trajectory, dataset=ds
+    )
+
+    result = strategy.record_warmup_failure(
+        "trace_0", "Internal server error: pool exhausted"
+    )
+
+    assert result is True
+    assert strategy._failed_warmup_traces == ["trace_0"]
+    remaining = [t.conversation_id for t in strategy.conversation_source.trajectories]
+    assert remaining == ["trace_0"], "non-overflow failures must not drop the trace"
+    with pytest.raises(TrajectoryWarmupFailedError):
+        strategy.report_warmup_failures()
+
+
+def test_warmup_failure_with_no_error_still_returns_true() -> None:
+    """A cancellation (error=None) at WARMUP is still a hard failure."""
+    trajectory = [Trajectory(conversation_id="trace_0", start_turn_index=0)]
+    ds = _make_dataset(num_traces=1, turns_per_trace=2)
+    strategy, _, _, _ = _make_strategy(
+        phase=CreditPhase.WARMUP, trajectories=trajectory, dataset=ds
+    )
+
+    result = strategy.record_warmup_failure("trace_0")  # error defaults to None
+
+    assert result is True
+    assert strategy._failed_warmup_traces == ["trace_0"]

@@ -663,7 +663,9 @@ async def test_overflow_with_intercept_true_still_records_warmup_failure(
     )
 
     mock_branch_orchestrator.intercept.assert_not_awaited()
-    strategy.record_warmup_failure.assert_called_once_with(credit.conversation_id)
+    strategy.record_warmup_failure.assert_called_once_with(
+        credit.conversation_id, _OVERFLOW_ERROR
+    )
     strategy.handle_credit_return.assert_awaited_once()
 
 
@@ -710,7 +712,9 @@ async def test_non_overflow_warmup_gated_intercept_still_records_warmup_failure(
     )
 
     mock_branch_orchestrator.intercept.assert_awaited_once_with(credit)
-    strategy.record_warmup_failure.assert_called_once_with(credit.conversation_id)
+    strategy.record_warmup_failure.assert_called_once_with(
+        credit.conversation_id, "Internal server error: pool exhausted"
+    )
     strategy.handle_credit_return.assert_not_awaited()
 
 
@@ -1231,7 +1235,7 @@ class TestWarmupFailureRecording:
         await warmup_handler.on_credit_return("worker-1", credit_return)
 
         warmup_strategy.record_warmup_failure.assert_called_once_with(
-            credit.conversation_id
+            credit.conversation_id, "server 500"
         )
 
     async def test_non_final_warmup_credit_cancelled_records_failure(
@@ -1246,7 +1250,7 @@ class TestWarmupFailureRecording:
         await warmup_handler.on_credit_return("worker-1", credit_return)
 
         warmup_strategy.record_warmup_failure.assert_called_once_with(
-            credit.conversation_id
+            credit.conversation_id, None
         )
 
     async def test_successful_warmup_credit_does_not_record_failure(
