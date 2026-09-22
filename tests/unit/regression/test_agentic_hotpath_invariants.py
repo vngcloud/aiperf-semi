@@ -134,7 +134,9 @@ async def test_non_overflow_warmup_gated_intercept_records_warmup_failure() -> N
     )
 
     orch.intercept.assert_awaited_once_with(credit)
-    strategy.record_warmup_failure.assert_called_once_with(credit.conversation_id)
+    strategy.record_warmup_failure.assert_called_once_with(
+        credit.conversation_id, "Internal server error: pool exhausted"
+    )
     strategy.handle_credit_return.assert_not_awaited()
 
 
@@ -191,7 +193,9 @@ async def test_non_overflow_warmup_gated_intercept_fires_live_abort() -> None:
         ),
     )
 
-    strategy.record_warmup_failure.assert_called_once_with(credit.conversation_id)
+    strategy.record_warmup_failure.assert_called_once_with(
+        credit.conversation_id, "Internal server error: pool exhausted"
+    )
     on_abort.assert_awaited_once()
 
 
