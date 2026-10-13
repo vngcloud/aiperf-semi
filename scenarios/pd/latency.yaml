@@ -1,0 +1,36 @@
+# PD vs agg latency: replay the Mooncake conversation trace on its own timestamps
+# (3.4 req/s, ~59 min, 12,031 requests). Output length comes from the trace (no ignore_eos).
+# Read TTFT / ITL / E2E percentiles and the share of requests that meet the SLO.
+# Runner: slurm/pd-bench.sh latency (PDGBench srtctl recipes call it).
+schemaVersion: "2.0"
+random_seed: 42
+
+benchmark:
+  model: ${BENCH_MODEL:Qwen/Qwen3-32B}
+  tokenizer:
+    name: ${BENCH_TOKENIZER:Qwen/Qwen3-32B}
+  endpoint:
+    url: ${BENCH_URL:http://localhost:8000}
+    streaming: true
+  dataset:
+    type: file
+    path: ${BENCH_TRACE:/traces/x1/conversation_trace.jsonl}
+    format: mooncake_trace
+  phases:
+    # Not a dataset warm-up: 20 short requests so the first trace requests do not pay
+    # CUDA graph / connection start-up.
+    - name: warmup
+      kind: warmup
+      type: concurrency
+      concurrency: 10
+      requests: 20
+      exclude_from_results: true
+    - name: profiling
+      type: fixed_schedule
+  slos:                       # NVIDIA's goodput definition for this recipe
+    time_to_first_token: ${BENCH_SLO_TTFT_MS:2000}
+    inter_token_latency: ${BENCH_SLO_ITL_MS:30}
+  runtime:
+    ui: simple
+  artifacts:
+    dir: ${BENCH_ARTIFACT_DIR:./artifacts/pd-latency}

@@ -1,0 +1,42 @@
+# PD vs agg max throughput: closed loop, BENCH_CCU requests always in flight. A finished
+# request is replaced at once (trace gaps ignored), so the server never queues more than
+# CCU. Every request generates exactly the trace's output length (ignore_eos).
+# Run one CCU level per server start, so each level begins with an empty KV cache.
+# Read input / output tok/s; the plateau over CCU is the max throughput.
+# Runner: slurm/pd-bench.sh throughput CCU (PDGBench srtctl recipes call it).
+schemaVersion: "2.0"
+random_seed: 42
+
+benchmark:
+  model: ${BENCH_MODEL:Qwen/Qwen3-32B}
+  tokenizer:
+    name: ${BENCH_TOKENIZER:Qwen/Qwen3-32B}
+    trust_remote_code: true
+  endpoint:
+    url: ${BENCH_URL:http://localhost:8000}
+    streaming: true
+    extra:
+      ignore_eos: true
+  dataset:
+    type: file
+    path: ${BENCH_TRACE:/traces/x1/conversation_trace.jsonl}
+    format: mooncake_trace
+    ignore_trace_delays: true
+  phases:
+    - name: warmup            # fills every slot once before measuring
+      kind: warmup
+      type: concurrency
+      concurrency: ${BENCH_CCU:32}
+      requests: ${BENCH_CCU:32}
+      exclude_from_results: true
+    - name: profiling
+      type: concurrency
+      concurrency: ${BENCH_CCU:32}
+      requests: ${BENCH_REQUESTS:2400}   # use ~15x CCU at high CCU (6,000 at 384)
+  slos:
+    time_to_first_token: ${BENCH_SLO_TTFT_MS:2000}
+    inter_token_latency: ${BENCH_SLO_ITL_MS:30}
+  runtime:
+    ui: simple
+  artifacts:
+    dir: ${BENCH_ARTIFACT_DIR:./artifacts/pd-throughput}
